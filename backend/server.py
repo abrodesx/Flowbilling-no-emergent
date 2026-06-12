@@ -1172,9 +1172,16 @@ def image_to_jpeg_bytes(
 
 def groq_error_message(exc: Exception) -> str:
     text = str(exc)
+    lower = text.lower()
+    if "api_key_invalid" in lower or "api key not valid" in lower:
+        return "La clave de Gemini no es valida. Revisa GEMINI_API_KEY en Render."
+    if "gemini api no configurada" in lower:
+        return "Gemini no esta configurado en el backend. Revisa GEMINI_API_KEY en Render y redespliega."
+    if "gemini error" in lower:
+        return f"Gemini ha fallado como respaldo: {text}"
     if "403" in text or "Access denied" in text:
-        return "Groq ha rechazado la imagen. Haz la foto mas cerca del ticket, con buena luz, o sube una version recortada."
-    if "413" in text or "request too large" in text.lower():
+        return "Groq ha rechazado la imagen y no se pudo completar el respaldo. Revisa que GEMINI_API_KEY este configurada en Render."
+    if "413" in text or "request too large" in lower:
         return "La imagen es demasiado grande para Groq. Prueba con una foto recortada del ticket."
     return f"Error: {text}"
 
@@ -1244,16 +1251,15 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
             return json.loads(resp.choices[0].message.content)
         except Exception as e:
             groq_error = e
-            if not is_retryable_groq_image_error(e):
-                raise
-            try:
-                smaller = image_to_jpeg_bytes(image_bytes, max_side=900, quality=68, max_bytes=1_500_000)
-                resp = groq_vision_json(prompt, smaller, "image/jpeg", max_tokens)
-                return json.loads(resp.choices[0].message.content)
-            except Exception as retry_error:
-                groq_error = retry_error
+            if is_retryable_groq_image_error(e):
+                try:
+                    smaller = image_to_jpeg_bytes(image_bytes, max_side=900, quality=68, max_bytes=1_500_000)
+                    resp = groq_vision_json(prompt, smaller, "image/jpeg", max_tokens)
+                    return json.loads(resp.choices[0].message.content)
+                except Exception as retry_error:
+                    groq_error = retry_error
 
-    if GEMINI_API_KEY and (groq_error is None or is_retryable_groq_image_error(groq_error)):
+    if GEMINI_API_KEY:
         gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
         return gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
 
