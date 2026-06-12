@@ -58,7 +58,7 @@ GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 GROQ_TEXT_MODEL = "llama-3.3-70b-versatile"
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_VISION_MODEL = os.environ.get("GEMINI_VISION_MODEL", "gemini-2.5-flash")
-AI_VISION_PRIMARY = os.environ.get("AI_VISION_PRIMARY", "gemini" if GEMINI_API_KEY else "groq").lower()
+AI_VISION_PRIMARY = os.environ.get("AI_VISION_PRIMARY", "gemini" if GEMINI_API_KEY else "groq").strip().lower()
 
 STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
@@ -1276,9 +1276,8 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
             logger.info(f"Using Gemini vision primary with model={GEMINI_VISION_MODEL}")
             return gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
         except Exception as gemini_error:
-            logger.warning(f"Gemini vision primary failed, Groq fallback available={bool(groq_client)}: {gemini_error}")
-            if not groq_client:
-                raise
+            logger.warning(f"Gemini vision primary failed: {gemini_error}")
+            raise
 
     groq_error = None
     if groq_client:
