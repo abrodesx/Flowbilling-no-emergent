@@ -1181,7 +1181,7 @@ def groq_error_message(exc: Exception) -> str:
     if "gemini error" in lower:
         return f"Gemini ha fallado como respaldo: {text}"
     if "403" in text or "Access denied" in text:
-        return "Groq ha rechazado la imagen y no se pudo completar el respaldo. Revisa que GEMINI_API_KEY este configurada en Render."
+        return f"El proveedor de vision ha rechazado la imagen: {text}"
     if "413" in text or "request too large" in lower:
         return "La imagen es demasiado grande para Groq. Prueba con una foto recortada del ticket."
     return f"Error: {text}"
@@ -1274,7 +1274,9 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
         try:
             gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
             logger.info(f"Using Gemini vision primary with model={GEMINI_VISION_MODEL}")
-            return gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
+            data = gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
+            data["_ai_provider"] = "gemini"
+            return data
         except Exception as gemini_error:
             logger.warning(f"Gemini vision primary failed: {gemini_error}")
             raise
@@ -1283,7 +1285,9 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
     if groq_client:
         try:
             resp = groq_vision_json(prompt, image_bytes, mime, max_tokens)
-            return json.loads(resp.choices[0].message.content)
+            data = json.loads(resp.choices[0].message.content)
+            data["_ai_provider"] = "groq"
+            return data
         except Exception as e:
             groq_error = e
             logger.warning(f"Groq vision failed, fallback available={bool(GEMINI_API_KEY)}: {e}")
@@ -1291,7 +1295,9 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
                 try:
                     smaller = image_to_jpeg_bytes(image_bytes, max_side=900, quality=68, max_bytes=1_500_000)
                     resp = groq_vision_json(prompt, smaller, "image/jpeg", max_tokens)
-                    return json.loads(resp.choices[0].message.content)
+                    data = json.loads(resp.choices[0].message.content)
+                    data["_ai_provider"] = "groq"
+                    return data
                 except Exception as retry_error:
                     groq_error = retry_error
                     logger.warning(f"Groq vision retry failed, fallback available={bool(GEMINI_API_KEY)}: {retry_error}")
@@ -1299,7 +1305,9 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
     if GEMINI_API_KEY:
         gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
         logger.info(f"Using Gemini vision fallback with model={GEMINI_VISION_MODEL}")
-        return gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
+        data = gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
+        data["_ai_provider"] = "gemini"
+        return data
 
     raise groq_error
 
@@ -2115,6 +2123,7 @@ async def ai_config_status():
         "gemini_model": GEMINI_VISION_MODEL,
         "gemini_key_loaded": bool(GEMINI_API_KEY),
         "vision_primary": AI_VISION_PRIMARY,
+        "diagnostic_version": "vision-gemini-primary-v4",
     }
 
 
