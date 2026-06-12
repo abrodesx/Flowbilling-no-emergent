@@ -22,7 +22,7 @@ const compressImage = (file) =>
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      const maxSide = 1600;
+      const maxSide = 1200;
       const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
       const width = Math.round(img.width * scale);
       const height = Math.round(img.height * scale);
@@ -40,7 +40,7 @@ const compressImage = (file) =>
           resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
         },
         "image/jpeg",
-        0.82
+        0.72
       );
     };
     img.onerror = () => {
@@ -87,13 +87,13 @@ export default function Expenses() {
 
   const onFile = async (file) => {
     if (!file) return;
-    const ok = /^image\/(png|jpe?g|webp)$/i.test(file.type) || /pdf/i.test(file.type) || /\.pdf$/i.test(file.name);
-    if (!ok) return toast.error("Sube imagen JPG/PNG/WEBP o PDF");
+    const ok = /^image\//i.test(file.type) || /pdf/i.test(file.type) || /\.pdf$/i.test(file.name);
+    if (!ok) return toast.error("Sube una imagen o PDF");
     setOcrLoading(true);
     const fd = new FormData();
     try {
       const uploadFile = await compressImage(file);
-      fd.append("file", uploadFile);
+      fd.append("file", uploadFile, uploadFile.name || "ticket.jpg");
       const { data } = await api.post("/ai/ocr-receipt", fd);
       setForm({
         ...empty,

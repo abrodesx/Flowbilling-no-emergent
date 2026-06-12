@@ -1140,23 +1140,57 @@ def pdf_first_page_to_jpeg_bytes(pdf_bytes: bytes) -> bytes:
     out.seek(0); return out.read()
 
 
-def image_to_jpeg_bytes(image_bytes: bytes, max_side: int = 1600, quality: int = 82) -> bytes:
+def image_to_jpeg_bytes(
+    image_bytes: bytes,
+    max_side: int = 1200,
+    quality: int = 76,
+    max_bytes: int = 2_800_000,
+) -> bytes:
     img = Image.open(io.BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
-    img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    out = io.BytesIO()
-    img.save(out, format="JPEG", quality=quality, optimize=True)
-    out.seek(0)
-    return out.read()
+
+    side = max_side
+    current_quality = quality
+    while True:
+        work = img.copy()
+        work.thumbnail((side, side), Image.Resampling.LANCZOS)
+        out = io.BytesIO()
+        work.save(out, format="JPEG", quality=current_quality, optimize=True)
+        data = out.getvalue()
+        if len(data) <= max_bytes or (side <= 700 and current_quality <= 62):
+            return data
+        if current_quality > 62:
+            current_quality -= 8
+        else:
+            side = int(side * 0.82)
 
 
 def groq_error_message(exc: Exception) -> str:
     text = str(exc)
     if "403" in text or "Access denied" in text:
-        return "El proveedor de IA ha rechazado la imagen. Prueba con buena luz, recorta el ticket o usa una foto mas pequena."
+        return "Groq ha rechazado la imagen. Haz la foto mas cerca del ticket, con buena luz, o sube una version recortada."
+    if "413" in text or "request too large" in text.lower():
+        return "La imagen es demasiado grande para Groq. Prueba con una foto recortada del ticket."
     return f"Error: {text}"
+
+
+def is_retryable_groq_image_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "403" in text or "access denied" in text or "413" in text or "request too large" in text
+
+
+def groq_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int):
+    b64 = base64.b64encode(image_bytes).decode()
+    return groq_client.chat.completions.create(
+        model=GROQ_VISION_MODEL,
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+        ]}],
+        response_format={"type": "json_object"}, temperature=0.1, max_tokens=max_tokens,
+    )
 
 
 @api.post("/ai/ocr-receipt")
@@ -1175,7 +1209,7 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
         except Exception as e:
             logger.error(f"PDF convert failed: {e}")
             raise HTTPException(400, "No se pudo procesar el PDF.")
-    elif not any(t in mime for t in ["png", "jpeg", "jpg", "webp"]):
+    elif not ("image/" in mime or any(t in mime for t in ["png", "jpeg", "jpg", "webp"])):
         raise HTTPException(400, "Formato no soportado.")
     else:
         try:
@@ -1183,7 +1217,6 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
         except Exception as e:
             logger.error(f"Image normalize failed: {e}")
             raise HTTPException(400, "No se pudo procesar la imagen.")
-    b64 = base64.b64encode(raw).decode()
     prompt = (
         "Eres un asistente fiscal español. Analiza este ticket o factura. "
         "Devuelve SOLO un JSON válido con: amount (número), iva (porcentaje 21/10/4/0), "
@@ -1191,14 +1224,13 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
         "description (resumen breve). Si no detectas algo, usa null."
     )
     try:
-        resp = groq_client.chat.completions.create(
-            model=GROQ_VISION_MODEL,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ]}],
-            response_format={"type": "json_object"}, temperature=0.1, max_tokens=512,
-        )
+        try:
+            resp = groq_vision_json(prompt, raw, mime, 512)
+        except Exception as e:
+            if not is_retryable_groq_image_error(e):
+                raise
+            smaller = image_to_jpeg_bytes(raw, max_side=900, quality=68, max_bytes=1_500_000)
+            resp = groq_vision_json(prompt, smaller, "image/jpeg", 512)
         return json.loads(resp.choices[0].message.content)
     except Exception as e:
         logger.error(f"OCR error: {e}")
@@ -1231,7 +1263,7 @@ async def ai_import_invoice(
         except Exception as e:
             logger.error(f"PDF convert failed: {e}")
             raise HTTPException(400, "No se pudo procesar el PDF.")
-    elif not any(t in mime for t in ["png", "jpeg", "jpg", "webp"]):
+    elif not ("image/" in mime or any(t in mime for t in ["png", "jpeg", "jpg", "webp"])):
         raise HTTPException(400, "Formato no soportado (PNG, JPG o PDF).")
     else:
         try:
@@ -1239,7 +1271,6 @@ async def ai_import_invoice(
         except Exception as e:
             logger.error(f"Image normalize failed: {e}")
             raise HTTPException(400, "No se pudo procesar la imagen.")
-    b64 = base64.b64encode(raw).decode()
     label = "factura" if target == "invoice" else "presupuesto"
     prompt = (
         f"Eres un asistente fiscal español. Analiza esta imagen/PDF de una {label} y extrae sus datos. "
@@ -1264,14 +1295,13 @@ async def ai_import_invoice(
         "Si no encuentras un campo, usa null (excepto items y quantity)."
     )
     try:
-        resp = groq_client.chat.completions.create(
-            model=GROQ_VISION_MODEL,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ]}],
-            response_format={"type": "json_object"}, temperature=0.1, max_tokens=2048,
-        )
+        try:
+            resp = groq_vision_json(prompt, raw, mime, 2048)
+        except Exception as e:
+            if not is_retryable_groq_image_error(e):
+                raise
+            smaller = image_to_jpeg_bytes(raw, max_side=900, quality=68, max_bytes=1_500_000)
+            resp = groq_vision_json(prompt, smaller, "image/jpeg", 2048)
         data = json.loads(resp.choices[0].message.content)
     except Exception as e:
         logger.error(f"AI import error: {e}")
@@ -2128,7 +2158,13 @@ async def ocr_advanced(file: UploadFile = File(...), ctx=Depends(get_user_contex
             raw = pdf_first_page_to_jpeg_bytes(raw); mime = "image/jpeg"
         except Exception:
             raise HTTPException(400, "No se pudo procesar el PDF")
-    b64 = base64.b64encode(raw).decode()
+    elif "image/" in mime:
+        try:
+            raw = image_to_jpeg_bytes(raw); mime = "image/jpeg"
+        except Exception:
+            raise HTTPException(400, "No se pudo procesar la imagen")
+    else:
+        raise HTTPException(400, "Formato no soportado")
     prompt = (
         "Analiza este ticket/factura. JSON con: amount, iva (%), merchant, date (YYYY-MM-DD), "
         "category, description, has_nif (bool si aparece NIF/CIF del comprador), "
@@ -2136,20 +2172,19 @@ async def ocr_advanced(file: UploadFile = File(...), ctx=Depends(get_user_contex
         "warnings (array strings: ej. 'IVA no detectado', 'falta NIF comprador', 'factura simplificada')."
     )
     try:
-        resp = groq_client.chat.completions.create(
-            model=GROQ_VISION_MODEL,
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ]}],
-            response_format={"type": "json_object"}, temperature=0.1, max_tokens=512,
-        )
+        try:
+            resp = groq_vision_json(prompt, raw, mime, 512)
+        except Exception as e:
+            if not is_retryable_groq_image_error(e):
+                raise
+            smaller = image_to_jpeg_bytes(raw, max_side=900, quality=68, max_bytes=1_500_000)
+            resp = groq_vision_json(prompt, smaller, "image/jpeg", 512)
         data = json.loads(resp.choices[0].message.content)
         data["file_hash"] = file_hash
         data["duplicate"] = False
         return data
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(502, groq_error_message(e))
 
 
 # ---------- EMAIL (Resend) ----------
