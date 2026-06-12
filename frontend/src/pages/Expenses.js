@@ -11,6 +11,45 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Receipt, Trash2, Sparkles, Upload, Pencil, Camera } from "lucide-react";
 import { toast } from "sonner";
 
+const compressImage = (file) =>
+  new Promise((resolve) => {
+    if (!/^image\//i.test(file.type)) {
+      resolve(file);
+      return;
+    }
+
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxSide = 1600;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const width = Math.round(img.width * scale);
+      const height = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            resolve(file);
+            return;
+          }
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+        },
+        "image/jpeg",
+        0.82
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+
 const CATEGORIES = ["Material oficina", "Software", "Restauración", "Transporte", "Suministros", "Marketing", "Servicios profesionales", "Otros"];
 const empty = { description: "", category: "Otros", amount: 0, iva: 21, date: new Date().toISOString().slice(0, 10), supplier: "", payment_method: "tarjeta", notes: "" };
 
@@ -52,9 +91,10 @@ export default function Expenses() {
     if (!ok) return toast.error("Sube imagen JPG/PNG/WEBP o PDF");
     setOcrLoading(true);
     const fd = new FormData();
-    fd.append("file", file);
     try {
-      const { data } = await api.post("/ai/ocr-receipt", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const uploadFile = await compressImage(file);
+      fd.append("file", uploadFile);
+      const { data } = await api.post("/ai/ocr-receipt", fd);
       setForm({
         ...empty,
         description: data.description || "Ticket escaneado",

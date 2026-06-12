@@ -25,6 +25,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
 from groq import Groq
 import pypdfium2 as pdfium
+from PIL import Image, ImageOps
 
 try:
     import qrcode  # type: ignore
@@ -1139,6 +1140,25 @@ def pdf_first_page_to_jpeg_bytes(pdf_bytes: bytes) -> bytes:
     out.seek(0); return out.read()
 
 
+def image_to_jpeg_bytes(image_bytes: bytes, max_side: int = 1600, quality: int = 82) -> bytes:
+    img = Image.open(io.BytesIO(image_bytes))
+    img = ImageOps.exif_transpose(img)
+    img.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    out = io.BytesIO()
+    img.save(out, format="JPEG", quality=quality, optimize=True)
+    out.seek(0)
+    return out.read()
+
+
+def groq_error_message(exc: Exception) -> str:
+    text = str(exc)
+    if "403" in text or "Access denied" in text:
+        return "El proveedor de IA ha rechazado la imagen. Prueba con buena luz, recorta el ticket o usa una foto mas pequena."
+    return f"Error: {text}"
+
+
 @api.post("/ai/ocr-receipt")
 async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context)):
     if not groq_client:
@@ -1157,6 +1177,12 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
             raise HTTPException(400, "No se pudo procesar el PDF.")
     elif not any(t in mime for t in ["png", "jpeg", "jpg", "webp"]):
         raise HTTPException(400, "Formato no soportado.")
+    else:
+        try:
+            raw = image_to_jpeg_bytes(raw); mime = "image/jpeg"
+        except Exception as e:
+            logger.error(f"Image normalize failed: {e}")
+            raise HTTPException(400, "No se pudo procesar la imagen.")
     b64 = base64.b64encode(raw).decode()
     prompt = (
         "Eres un asistente fiscal español. Analiza este ticket o factura. "
@@ -1176,7 +1202,7 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
         return json.loads(resp.choices[0].message.content)
     except Exception as e:
         logger.error(f"OCR error: {e}")
-        raise HTTPException(500, f"Error: {str(e)}")
+        raise HTTPException(502, groq_error_message(e))
 
 
 @api.post("/ai/import-invoice")
@@ -1207,6 +1233,12 @@ async def ai_import_invoice(
             raise HTTPException(400, "No se pudo procesar el PDF.")
     elif not any(t in mime for t in ["png", "jpeg", "jpg", "webp"]):
         raise HTTPException(400, "Formato no soportado (PNG, JPG o PDF).")
+    else:
+        try:
+            raw = image_to_jpeg_bytes(raw); mime = "image/jpeg"
+        except Exception as e:
+            logger.error(f"Image normalize failed: {e}")
+            raise HTTPException(400, "No se pudo procesar la imagen.")
     b64 = base64.b64encode(raw).decode()
     label = "factura" if target == "invoice" else "presupuesto"
     prompt = (
@@ -1243,7 +1275,7 @@ async def ai_import_invoice(
         data = json.loads(resp.choices[0].message.content)
     except Exception as e:
         logger.error(f"AI import error: {e}")
-        raise HTTPException(500, f"Error analizando documento: {str(e)}")
+        raise HTTPException(502, f"Error analizando documento: {groq_error_message(e)}")
 
     # Normalize items
     items = data.get("items") or []
@@ -2997,4 +3029,3 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
-
