@@ -2,11 +2,27 @@ import axios from "axios";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 export const API_BASE = `${BACKEND}/api`;
+const AUTH_TOKEN_KEY = "ff-access-token";
 
 export const api = axios.create({
   baseURL: API_BASE,
   withCredentials: true,
 });
+
+export function setAuthToken(token) {
+  if (token) {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    api.defaults.headers.common.Authorization = `Bearer ${token}`;
+  } else {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    delete api.defaults.headers.common.Authorization;
+  }
+}
+
+const _token = typeof window !== "undefined" ? localStorage.getItem(AUTH_TOKEN_KEY) : null;
+if (_token) {
+  api.defaults.headers.common.Authorization = `Bearer ${_token}`;
+}
 
 // Hydrate profile header from localStorage if present
 const _stored = typeof window !== "undefined" ? localStorage.getItem("ff-profile") : null;

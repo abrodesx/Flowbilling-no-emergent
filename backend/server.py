@@ -80,6 +80,7 @@ ALLOWED_ORIGINS = [
     for origin in os.environ.get("CORS_ORIGINS", os.environ.get("FRONTEND_URL", "")).split(",")
     if origin.strip()
 ] or DEFAULT_ALLOWED_ORIGINS
+CORS_ORIGIN_REGEX = os.environ.get("CORS_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
 
 def is_owner(user: dict) -> bool:
@@ -340,7 +341,7 @@ async def register(data: RegisterIn, response: Response):
     await ensure_default_profile(uid, data.company or data.name or "Personal")
     access = create_token(uid, email, "access"); refresh = create_token(uid, email, "refresh")
     set_auth_cookies(response, access, refresh)
-    return {"id": uid, "email": email, "name": data.name, "company": data.company}
+    return {"id": uid, "email": email, "name": data.name, "company": data.company, "access_token": access}
 
 
 @api.post("/auth/login")
@@ -352,7 +353,7 @@ async def login(data: LoginIn, response: Response):
     await ensure_default_profile(user["id"], user.get("company") or user.get("name") or "Personal")
     access = create_token(user["id"], email, "access"); refresh = create_token(user["id"], email, "refresh")
     set_auth_cookies(response, access, refresh)
-    return {"id": user["id"], "email": email, "name": user["name"], "company": user.get("company", "")}
+    return {"id": user["id"], "email": email, "name": user["name"], "company": user.get("company", ""), "access_token": access}
 
 
 @api.post("/auth/logout")
@@ -2947,6 +2948,7 @@ app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -2995,5 +2997,4 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     client.close()
-
 
