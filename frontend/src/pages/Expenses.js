@@ -94,7 +94,7 @@ export default function Expenses() {
     try {
       const uploadFile = await compressImage(file);
       fd.append("file", uploadFile, uploadFile.name || "ticket.jpg");
-      const { data } = await api.post("/ai/ocr-receipt", fd);
+      const { data } = await api.post("/ai/ocr-receipt-gemini", fd);
       setForm({
         ...empty,
         description: data.description || "Ticket escaneado",

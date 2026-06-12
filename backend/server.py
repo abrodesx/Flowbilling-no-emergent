@@ -1178,8 +1178,8 @@ def groq_error_message(exc: Exception) -> str:
         return "La clave de Gemini no es valida. Revisa GEMINI_API_KEY en Render."
     if "gemini api no configurada" in lower:
         return "Gemini no esta configurado en el backend. Revisa GEMINI_API_KEY en Render y redespliega."
-    if "gemini error" in lower:
-        return f"Gemini ha fallado como respaldo: {text}"
+    if "gemini" in lower:
+        return f"Gemini ha rechazado la imagen: {text}"
     if "403" in text or "Access denied" in text:
         return f"El proveedor de vision ha rechazado la imagen: {text}"
     if "413" in text or "request too large" in lower:
@@ -1266,6 +1266,19 @@ def gemini_text_ping() -> str:
     ).strip()
 
 
+def gemini_vision_ping() -> dict:
+    # 1x1 transparent PNG. Lets us verify image permissions without user uploads.
+    png_1x1 = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    return gemini_vision_json(
+        "Responde SOLO JSON valido con esta estructura exacta: {\"ok\": true, \"provider\": \"gemini\"}",
+        png_1x1,
+        "image/png",
+        64,
+    )
+
+
 def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_tokens: int) -> dict:
     if not groq_client and not GEMINI_API_KEY:
         raise HTTPException(500, "IA no configurada")
@@ -1347,6 +1360,45 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
     except Exception as e:
         logger.error(f"OCR error: {e}")
         raise HTTPException(502, groq_error_message(e))
+
+
+@api.post("/ai/ocr-receipt-gemini")
+async def ocr_receipt_gemini(file: UploadFile = File(...), ctx=Depends(get_user_context)):
+    if not GEMINI_API_KEY:
+        raise HTTPException(500, "Gemini no esta configurado")
+    raw = await file.read()
+    if len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Archivo demasiado grande (max 10MB)")
+    mime = (file.content_type or "image/jpeg").lower()
+    fname = (file.filename or "").lower()
+    is_pdf = "pdf" in mime or fname.endswith(".pdf")
+    if is_pdf:
+        try:
+            raw = pdf_first_page_to_jpeg_bytes(raw); mime = "image/jpeg"
+        except Exception as e:
+            logger.error(f"PDF convert failed: {e}")
+            raise HTTPException(400, "No se pudo procesar el PDF.")
+    elif "image/" in mime or any(t in mime for t in ["png", "jpeg", "jpg", "webp"]):
+        try:
+            raw = image_to_jpeg_bytes(raw, max_side=1200, quality=76, max_bytes=3_500_000); mime = "image/jpeg"
+        except Exception as e:
+            logger.error(f"Image normalize failed: {e}")
+            raise HTTPException(400, "No se pudo procesar la imagen.")
+    else:
+        raise HTTPException(400, "Formato no soportado.")
+    prompt = (
+        "Eres un asistente fiscal espanol. Analiza este ticket o factura. "
+        "Devuelve SOLO un JSON valido con: amount (numero), iva (porcentaje 21/10/4/0), "
+        "merchant, date (YYYY-MM-DD), category (una de: 'Material oficina','Software','Restauracion','Transporte','Suministros','Marketing','Servicios profesionales','Otros'), "
+        "description (resumen breve). Si no detectas algo, usa null."
+    )
+    try:
+        data = gemini_vision_json(prompt, raw, mime, 512)
+        data["_ai_provider"] = "gemini-direct"
+        return data
+    except Exception as e:
+        logger.error(f"Gemini direct OCR error: {e}")
+        raise HTTPException(502, f"Gemini ha fallado procesando la imagen: {e}")
 
 
 @api.post("/ai/import-invoice")
@@ -2134,6 +2186,16 @@ async def ai_gemini_ping():
         return {"ok": True, "model": GEMINI_VISION_MODEL, "response": text}
     except Exception as e:
         logger.error(f"Gemini ping error: {e}")
+        return {"ok": False, "model": GEMINI_VISION_MODEL, "error": str(e)}
+
+
+@api.get("/ai/gemini-vision-ping")
+async def ai_gemini_vision_ping():
+    try:
+        data = gemini_vision_ping()
+        return {"ok": True, "model": GEMINI_VISION_MODEL, "response": data}
+    except Exception as e:
+        logger.error(f"Gemini vision ping error: {e}")
         return {"ok": False, "model": GEMINI_VISION_MODEL, "error": str(e)}
 
 
