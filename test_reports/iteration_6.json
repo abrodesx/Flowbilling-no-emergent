@@ -1,0 +1,46 @@
+{
+  "summary": "Phase 4 (iteración 7, lote A+B+C) backend tested: audit log, CSV export/import, búsqueda avanzada, email templates, portal gestor, contrato PDF, firma digital (visual + cripto), logo upload y regresión Fase 1+2+3. 30/31 tests pasan. 1 bug crítico encontrado: subida de certificado .p12 SIEMPRE falla porque el backend pasa BytesIO a SimpleSigner.load_pkcs12() que espera un path. Esto bloquea por completo la firma criptográfica PAdES. La firma visual (mode=visual) sí funciona.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/profiles/{pid}/certificate",
+        "issue": "Subida de .p12 SIEMPRE devuelve 400 'Certificado inválido o contraseña incorrecta' incluso con contraseña correcta. RCA: server.py línea 2470 llama `SimpleSigner.load_pkcs12(pfx_file=io.BytesIO(raw), passphrase=...)`. pyhanko espera un path (str/PathLike) en `pfx_file`, no un buffer — internamente lanza TypeError que el except genérico oculta como 'pwd incorrecta'. Reproducido con `openssl req/openssl pkcs12` p12 y password 'test123'. Por consecuencia, la firma cripto PAdES queda inutilizable (el cert nunca se guarda). El test ‘wrong password rejected’ pasa por la razón equivocada (cualquier input falla).",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fakturaflow_phase4.py",
+    "/app/test_reports/pytest/phase4_iter6.xml"
+  ],
+  "action_items": [
+    "Sustituir en server.py:2468-2472 la llamada por: `_pyhanko_signers.SimpleSigner.load_pkcs12_data(pkcs12_bytes=raw, other_certs=[], passphrase=password.encode() if password else None)`. Eso devuelve un SimpleSigner válido si la contraseña es correcta y levanta excepción si no. Tras la corrección, re-ejecutar pytest /app/backend/tests/test_fakturaflow_phase4.py::TestSignature -v.",
+    "Considerar registrar el error real (logger.warning(str(e))) antes del HTTPException 400 para diagnóstico futuro — actualmente cualquier error se enmascara como 'contraseña incorrecta'.",
+    "Añadir endpoint GET /api/profiles/{pid} para consistencia REST (actualmente solo existe GET /api/profiles lista completa). No es bloqueante."
+  ],
+  "critical_code_review_comments": [
+    "server.py 2872 líneas — supera el límite recomendado de 700; debería dividirse en módulos (auth, invoices, csv_io, signature, gestor, audit, hacienda) para mantenibilidad.",
+    "Bug pyhanko: uso incorrecto de API `load_pkcs12(pfx_file=BytesIO)`. Es un type-error silenciado por except amplio. Fix: usar `load_pkcs12_data(pkcs12_bytes=raw, other_certs=[], passphrase=...)`.",
+    "GET /api/profiles/{pid} no existe → cualquier cliente que intente leer un perfil concreto recibe 405. Endpoints PUT/DELETE/POST por pid sí existen — inconsistencia REST.",
+    "Endpoint POST /api/profiles/{pid}/certificate guarda la contraseña en texto plano (`cert_password: password`). El comentario menciona 'in production, encrypt with KMS' pero la deuda técnica debe mitigarse: como mínimo cifrar con clave derivada del MASTER_KEY o no persistirla y exigirla en cada uso.",
+    "El bloque `try/except Exception as e: raise HTTPException(400, 'Certificado inválido o contraseña incorrecta')` enmascara errores reales — siempre logear `e` para depuración.",
+    "Importación de `csv as _csv` en mitad del fichero (línea 2216) — preferible mover todos los imports al top.",
+    "Audit log: el campo `changes` solo se rellena en algunos audits (status/total); para create/delete suele estar vacío. Considerar registrar snapshot previo en update y resumen del documento en create/delete para auditoría real."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fakturaflow_phase4.py"
+  ],
+  "success_rate": {"backend": "97%", "frontend": "skipped"},
+  "test_credentials": "Usuario de prueba creado dinámicamente p4_<uid>@fakturaflow.es / TestPass123! (registro vía /api/auth/register). Credenciales del usuario solicitado (admin@fakturaflow.es, s.abrodex@gmail.com) NO usadas: para evitar contaminar el audit log y los datos reales, los tests crean su propio usuario aislado.",
+  "seed_data_creation": "Creados: 1 perfil seed (NIF B11122233), 1 cliente TEST_, 1 factura A-*, 1 presupuesto, además de 2 clientes y 2 gastos y 1 factura importados por CSV. Se limpian con TestZzCleanup al final (clientes/facturas/gastos con prefijo TEST_). p12 de test generado en /tmp/test.p12 con openssl (CN=test, pwd=test123).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Tras el fix de carga del certificado, basta correr: pytest /app/backend/tests/test_fakturaflow_phase4.py::TestSignature -v --tb=short. El p12 dummy puede regenerarse con: openssl req -x509 -newkey rsa:2048 -keyout /tmp/key.pem -out /tmp/cert.pem -days 1 -nodes -subj '/CN=test' && openssl pkcs12 -export -out /tmp/test.p12 -inkey /tmp/key.pem -in /tmp/cert.pem -password pass:test123. Todo lo demás (audit, csv, search, email-templates, gestor, contract, logo, regresión) está verde y persistente. Para detectar regresiones futuras correr todo el archivo: pytest /app/backend/tests/test_fakturaflow_phase4.py -v.",
+  "rca of the issue": "POST /api/profiles/{pid}/certificate falla porque `SimpleSigner.load_pkcs12(pfx_file=io.BytesIO(raw), passphrase=...)` recibe un buffer pero la firma de pyhanko espera path. Internamente intenta abrir/leer ese 'path' y lanza TypeError('expected str, bytes or os.PathLike object, not BytesIO'). El bloque except amplio lo traduce a 400 'Certificado inválido o contraseña incorrecta', enmascarando el bug. Reproducción: 1) generar p12 con openssl (pass:test123); 2) POST multipart con file=p12 + password=test123 → 400. Fix: usar `SimpleSigner.load_pkcs12_data(pkcs12_bytes=raw, other_certs=[], passphrase=(password.encode() if password else None))`. Validado independientemente con un script local que probó ambas APIs."
+}

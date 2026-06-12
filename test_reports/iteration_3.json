@@ -1,0 +1,51 @@
+{
+  "summary": "Phase 3 backend testing complete — 71/71 tests pass (100%) — 25 Phase 1 + 22 Phase 2 + 24 Phase 3. Validated: (1) Profiles CRUD: GET auto-creates default, POST creates secondary with next_number/next_quote=1, PUT updates persist, set-default toggles is_default uniquely, DELETE on only profile -> 400. (2) Profile scoping (CRITICAL): clients/invoices/expenses created in profile A are NOT visible from profile B via X-Profile-Id header — list filters and GET-by-id returns 404 cross-profile. (3) Profile migration: existing users (test_a_*, test_b_*, p2_*, p3_*) auto-get default on /profiles call; data carries profile_id field. (4) Projects: list returns stats {invoiced, expenses, hours, invoices_count}; GET /{id} aggregates linked invoices/expenses/time_entries. (5) Time entries: amount auto = (duration/60)*rate, falls back to project.hourly_rate when missing; convert-to-invoice creates 1 invoice with N items containing 'Xh)' suffix and marks entries billed=true with invoice_id ref. (6) Tags: persisted on clients/invoices/expenses; GET /tags?entity= aggregates {tag, count} sorted desc. (7) Documents: upload (multipart, 4MB cap) returns metadata WITHOUT data_b64; list hides base64; GET /{id} returns raw bytes with correct Content-Type; DELETE works. Invalid entity_type rejected 400. (8) Modelos PDF 303/130/390 all return 200 application/pdf with %PDF magic. (9) ZIP preparar-trimestre: contains all 7 expected entries (libro-ingresos, libro-gastos, iva-repercutido, iva-soportado, modelo-303, modelo-130, resumen JSON) plus facturas/*.pdf when invoices exist; resumen JSON parses with year/quarter/totals. (10) Regression: all Phase 1+2 endpoints still pass after fixing one stale test (PUT /settings was intentionally removed in favour of PUT /profiles/{id}).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/settings", "issue": "Endpoint was removed in Phase 3 (only GET retained for legacy compat returning active profile). If the frontend still calls PUT /settings to persist branding/fiscal data, it will receive 405 — must migrate to PUT /api/profiles/{id}."},
+      {"endpoint": "POST /api/profiles", "issue": "No name uniqueness or trim/validation. User can create N profiles named 'Personal' — minor UX issue."},
+      {"endpoint": "DELETE /api/projects/{pid}", "issue": "Does not check existence first — silent 200 even if pid doesn't belong to this profile. Consider 404 for clearer client-side handling."},
+      {"endpoint": "POST /api/time-entries/convert-to-invoice", "issue": "Always uses today as issue_date and empty due_date. Caller cannot specify dates. Also project_id is taken only from entries[0] — mixed-project conversion silently loses info."},
+      {"endpoint": "POST /api/documents", "issue": "entity_id is not validated against an existing record. A document can be uploaded with a non-existent entity_id (it will simply orphan after delete). Consider checking entity_id exists in the relevant collection scoped by profile."},
+      {"endpoint": "GET /api/profiles", "issue": "Returns sorted by created_at asc, with no `is_default` first guarantee — frontends that grab profs[0] may not pick the default. Sort by is_default desc, then created_at."},
+      {"endpoint": "POST /api/profiles/{id}/set-default", "issue": "Does not enforce that the previous default is actually unset before setting new — uses 2 separate update_many/one. Functionally fine but not atomic; in concurrent set-default calls, two profiles could briefly be default."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_fakturaflow.py",
+    "/app/backend/tests/test_fakturaflow_phase2.py",
+    "/app/backend/tests/test_fakturaflow_phase3.py",
+    "/app/test_reports/pytest/phase3_results.xml",
+    "/app/test_reports/pytest/all_results.xml"
+  ],
+  "action_items": [
+    "Frontend audit: replace any PUT /api/settings call with PUT /api/profiles/{active_profile_id}. PUT /settings now returns 405.",
+    "Optional: add 404 on DELETE /projects/{pid} when not found; validate entity_id exists in POST /documents.",
+    "Optional: in convert-to-invoice, accept issue_date/due_date in payload; reject mixed-project entries (or split into separate invoices).",
+    "Optional: ensure GET /profiles returns default profile first (sort is_default desc).",
+    "Optional: make set-default atomic via single bulk update or transaction."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1685 lines — even more pressing need to split into routers (auth, profiles, clients, invoices, quotes, payments, projects, time_entries, documents, hacienda, accounting, ai). Maintenance risk is high.",
+    "Migration on startup loops over ALL users and runs 6 update_many per user (clients, invoices, expenses, quotes, payments, ai_messages). On a large user base this becomes a startup-time problem; consider gating by a `migrated_to_profiles` flag on each user.",
+    "ensure_default_profile is called from get_user_context AND from /auth/login AND from /profiles AND from startup — fine for idempotency but leads to repeated DB writes. Could be optimized with a one-shot cache.",
+    "DELETE /profiles/{pid} promotes another profile to default but does NOT delete the data scoped to that profile (clients/invoices/expenses/etc.). Result: orphaned records that won't show up under any profile (invisible). Either cascade delete or refuse with 400 when scope is non-empty.",
+    "Documents collection stores base64 in MongoDB — for 4MB files this means up to 5.4MB BSON per doc. With base64 inflation (33%), 4MB raw becomes ~5.5MB stored; close to the 16MB BSON limit if reused for larger files later. Consider GridFS or external object storage long-term.",
+    "/tags endpoint allows entity in {client, invoice, expense} but tags also exist on quotes and projects per the codebase — endpoint silently rejects them via Literal. Either expand the Literal or document.",
+    "convert-to-invoice does not respect ctx['profile'].default_iva / invoice_series — uses request payload defaults (series='A', iva=21). Honour profile defaults when omitted.",
+    "Time entry amount is rounded only to 2 decimals; for sub-minute precision (durations like 5 min @ 47€/h = 3.9166...) rounding may accumulate vs. invoice subtotal recomputation in calculate_totals."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fakturaflow_phase3.py (new — 24 tests)",
+    "/app/backend/tests/test_fakturaflow.py (fixed test_settings_get_put: PUT /settings is gone — now updates default profile via PUT /profiles/{id})"
+  ],
+  "success_rate": {"backend": "100% (71/71)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Phase 3 tests register fresh users p3_<uuid>@fakturaflow.es / TestPass123! and p3_only_<uuid>@... (idempotent with login fallback). admin@fakturaflow.es is documented in /app/memory/test_credentials.md but NOT seeded by backend.",
+  "seed_data_creation": "Each Phase 3 run creates: 1 user + 2 profiles (default + 'Segunda SL') + 2 clients (one per profile) + 1 project + 2 time entries + 1 invoice (default profile) + 1 invoice via convert-to-invoice + 2 ad-hoc tag-test clients + 1 doc (deleted in same test). Cleanup test deletes invoices, project, clients, secondary profile.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v --tb=short. All 71 tests pass. PUT /api/settings was removed in Phase 3 — the legacy GET /api/settings returns the active profile data. Frontend must use PUT /api/profiles/{id}. Default profile is auto-created on /auth/login, /auth/register, /profiles, and startup migration. CRITICAL test: when using X-Profile-Id header for cross-profile isolation, send it on EVERY scoped request — list endpoints filter, GET-by-id returns 404 cross-profile, POST writes to header's profile_id. ZIP preparar-trimestre: even with no invoices in period, returns ZIP with the 7 expected entries (CSVs are empty strings for empty books). Modelos PDF endpoints take ~1-3s. The same fixture-scoped clients/invoices/projects from Phase 3 run should be cleaned up by test_zz_cleanup at the end.",
+  "rca of the issue": "test_settings_get_put failure in test_fakturaflow.py was due to Phase 3 intentionally removing PUT /api/settings (settings are now per-profile, edited via PUT /api/profiles/{id}). Reproduction: requests.put('/api/settings', json=...) returns 405. Mitigation: updated the test to (a) GET /profiles, find default, (b) PUT /profiles/{default.id} with a payload containing the new fiscal_name, (c) re-GET /settings (which returns ctx['profile']) and assert fiscal_name persisted. No backend change required."
+}

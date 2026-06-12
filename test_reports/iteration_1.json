@@ -1,0 +1,37 @@
+{
+  "summary": "Comprehensive backend testing of FakturaFlow MVP. All 25 tests passed (100%) covering auth (register/login/logout/me), Clients CRUD, Invoices CRUD with totals math + PDF generation + duplicate, Expenses CRUD, Groq AI (OCR receipt, generate-concept, financial-summary), Dashboard aggregations, Quarterly/Annual reports, Fiscal calendar (Modelos 303/130/111/390/etc), Settings GET/PUT, Global search, and per-user data scoping.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/register", "issue": "Sets cookies with samesite='none'+secure=true. Works over HTTPS preview URL but will fail over plain HTTP local dev. Acceptable for the deployed env."},
+      {"endpoint": "GET /api/dashboard", "issue": "iva_sop computation uses e.amount * iva/(100+iva) which assumes amount is gross; if user enters net amount the IVA will be undercounted. Document the convention."},
+      {"endpoint": "Dashboard monthly chart", "issue": "Uses today.replace(day=1) - timedelta(days=k*30) which is approximate; near month boundaries the same month can repeat or skip. Consider using dateutil.relativedelta."},
+      {"endpoint": "POST /api/invoices", "issue": "Invoice number generator is not transactionally safe (read settings, increment, update). Concurrent creates could produce duplicate numbers. Use $inc atomic op."},
+      {"endpoint": "CORS", "issue": "allow_origins=['*'] together with allow_credentials=True is invalid per spec; FastAPI/Starlette will reflect origin via allow_origin_regex='.*' so it works, but tightening to explicit origins is recommended."},
+      {"endpoint": "POST /api/auth/login", "issue": "No brute-force lockout/rate limiting (playbook recommends lockout after 5 fails)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_fakturaflow.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Optional: Replace next-number generation with atomic $inc to avoid race condition on invoice numbering.",
+    "Optional: Add brute-force lockout for /api/auth/login (per auth playbook).",
+    "Optional: Tighten CORS to explicit allowed origins instead of '*' with credentials.",
+    "Optional: Use dateutil.relativedelta for accurate monthly buckets in /api/dashboard."
+  ],
+  "critical_code_review_comments": [
+    "Invoice number generation has a race condition (read-then-write). Use db.settings.find_one_and_update with $inc on next_number.<series>.",
+    "samesite='none' cookies require HTTPS, which is fine for the deployed preview but breaks local HTTP testing — document this.",
+    "Dashboard 'mark as vencida' loop performs N update_one calls on every request; consider a single update_many or batching for performance.",
+    "calculate_invoice_totals correctly handles quantity, price, discount, iva, irpf — verified: 2x100 with 21% IVA and 15% IRPF -> subtotal 200, IVA 42, IRPF 30, total 212.",
+    "server.py is 760 lines — consider splitting routers (auth/clients/invoices/ai/reports) into modules for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_fakturaflow.py"],
+  "success_rate": {"backend": "100%", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Tests register fresh users test_a_<uuid>@fakturaflow.es / TestPass123! (admin@fakturaflow.es is documented but NOT seeded). The seed-admin playbook is not implemented in server.py.",
+  "seed_data_creation": "Each test run registers two unique throwaway users; created clients/invoices/expenses are deleted by test_zz_delete. No admin seeding is performed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend at REACT_APP_BACKEND_URL works fully. Cookie-based JWT auth with httpOnly + secure + samesite=none. Run pytest backend/tests/test_fakturaflow.py. The fixture _login_or_register handles repeat runs (re-uses existing user). Groq vision model meta-llama/llama-4-scout-17b-16e-instruct works for OCR. admin@fakturaflow.es is documented in test_credentials.md but is NOT actually seeded in DB — register a new user instead.",
+  "rca of the issue": "N/A — no failures."
+}

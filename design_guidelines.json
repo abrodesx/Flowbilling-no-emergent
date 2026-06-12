@@ -1,0 +1,116 @@
+{
+  "theme": "hybrid_light_and_dark",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "brand_identity": {
+    "name": "FakturaFlow",
+    "target_audience": "Spanish freelancers (autónomos) and small businesses",
+    "vibe": "Modern, premium, fast, minimalist, inspired by Stripe, Notion, Linear, Vercel",
+    "primary_logo_url": "https://customer-assets.emergentagent.com/job_b5e3e1cf-375e-4fdf-8bb6-7551eb75baac/artifacts/bw8ldtiw_ChatGPT%20Image%2010%20may%202026%2C%2017_48_06.png"
+  },
+  "colors": {
+    "light": {
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "primary": "#2563EB",
+      "primary_hover": "#1D4ED8",
+      "secondary": "#0F172A",
+      "accent_success": "#10B981",
+      "accent_warning": "#F59E0B",
+      "accent_danger": "#EF4444",
+      "border": "#E2E8F0",
+      "text_main": "#0F172A",
+      "text_muted": "#64748B"
+    },
+    "dark": {
+      "background": "#0B1120",
+      "surface": "#0F172A",
+      "primary": "#3B82F6",
+      "primary_hover": "#60A5FA",
+      "secondary": "#F8FAFC",
+      "accent_success": "#10B981",
+      "accent_warning": "#F59E0B",
+      "accent_danger": "#F87171",
+      "border": "#1E293B",
+      "text_main": "#F8FAFC",
+      "text_muted": "#94A3B8"
+    }
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "weights": ["500", "600", "700"],
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "font_family": "Manrope, sans-serif",
+      "weights": ["400", "500"]
+    },
+    "mono": {
+      "font_family": "JetBrains Mono, monospace",
+      "usage": "Invoice numbers, monetary values, data tables"
+    },
+    "scale_rules": {
+      "h1_max": "text-4xl md:text-5xl",
+      "h2": "text-2xl md:text-3xl",
+      "h3": "text-xl",
+      "body": "text-base",
+      "small_labels": "text-xs tracking-[0.2em] uppercase font-semibold text-muted"
+    }
+  },
+  "layout_and_spacing": {
+    "dashboard_grid": "The 'Control Room' Grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-4 or gap-6 for dense data correlation.",
+    "container_padding": "Generous spacing inside structural containers: p-6 to p-8.",
+    "border_radius": "Subtle roundness: max 8px (rounded-lg) for outer cards, rounded-md for inner elements like inputs and buttons.",
+    "card_style": "Flat backgrounds with 1px subtle borders (border-border), avoiding deep shadows. Use shadow-sm exclusively on hover or for active states. 'Linear' aesthetic.",
+    "sidebar": "Fixed width 256px (w-64), solid background, subtle right border, featuring navigation items with explicit hover states."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Slight vertical lift (-translate-y-[2px]) and shadow-md for interactive cards. Text colors must explicitly shift on hover (e.g., hover:text-primary).",
+    "focus_states": "High-contrast ring: focus:ring-2 focus:ring-primary focus:outline-none.",
+    "page_transitions": "Subtle opacity and translate-y fade in for main content areas."
+  },
+  "components_strategy": {
+    "base_library": "shadcn/ui customized (React .js files, NOT .tsx)",
+    "forms": "Use Shadcn Form, Input, Select. Never use native raw inputs for complex UI.",
+    "tables": "Shadcn Table with horizontal scroll, sticky headers, and subtle row hover backgrounds.",
+    "charts": "Recharts via Shadcn Charts for Monthly Revenue/Expenses (Ingresos y Gastos) using area and bar charts.",
+    "toast": "Sonner for notifications (success, error, processing).",
+    "icons": "lucide-react"
+  },
+  "key_views_and_features": {
+    "auth": "Clean split screen or centered modal with the logo, email/password login, and register toggle.",
+    "dashboard": "KPI cards top row (Ingresos, Gastos, Beneficio, IVA, Facturas Pendientes). Middle row: Area chart for cashflow. Bottom: Recent invoices table.",
+    "invoices_facturas": "List view with status badges (Pagada: Green, Pendiente: Amber, Vencida: Red). Editor view: Multi-line inputs with dynamic totals, IVA/IRPF calculation, and PDF export trigger.",
+    "clients_clientes": "CRM-style list or grid displaying client details and associated revenue.",
+    "expenses_gastos": "List with receipt thumbnail/icon, OCR upload trigger, supplier, amount, and category.",
+    "reports_reportes": "Quarterly and annual fiscal reports with data visualization.",
+    "fiscal_calendar_calendario": "Timeline or grid view for Modelos 303, 130, 111 with deadlines and visual statuses.",
+    "settings_configuracion": "Tabs for Datos Fiscales, Logo, Series, Impuestos, Firma."
+  },
+  "media_and_assets": {
+    "logo_url": "https://customer-assets.emergentagent.com/job_b5e3e1cf-375e-4fdf-8bb6-7551eb75baac/artifacts/bw8ldtiw_ChatGPT%20Image%2010%20may%202026%2C%2017_48_06.png",
+    "avatars": [
+      "https://images.pexels.com/photos/28442317/pexels-photo-28442317.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "https://images.pexels.com/photos/31880922/pexels-photo-31880922.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    ],
+    "client_logos": [
+      "https://images.pexels.com/photos/7661185/pexels-photo-7661185.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "https://images.pexels.com/photos/9973170/pexels-photo-9973170.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+    ]
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure all text meets APCA/WCAG AA standards against backgrounds, especially in dark mode.",
+    "testing_attributes": "All interactive elements MUST include data-testid attribute in kebab-case based on role (e.g., data-testid='login-submit-button', data-testid='new-invoice-button')."
+  },
+  "instructions_to_main_agent": [
+    "Strictly apply the modern Stripe/Linear aesthetic with 1px borders, subtle glass/neumorphic touches, and minimal clutter.",
+    "Ensure complete Spanish localization across all UI elements, labels, and placeholders.",
+    "Implement light and dark themes using Tailwind classes.",
+    "Follow the 'Control Room' grid layout for the dashboard to maximize data density efficiently.",
+    "Implement smooth, non-intrusive micro-interactions for buttons and list items.",
+    "DO NOT use generic Inter font. Use Outfit for headings and Manrope for body text. Load these from Google Fonts.",
+    "Use JetBrains Mono for monetary values and invoice numbers to ensure tabular alignment.",
+    "Implement components in .js and .jsx files as requested by the environment, NOT TypeScript (.tsx).",
+    "Use the provided logo URL for the brand identity."
+  ]
+}

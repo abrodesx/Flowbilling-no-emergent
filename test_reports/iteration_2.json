@@ -1,0 +1,49 @@
+{
+  "summary": "Phase 2 backend testing complete — 47/47 tests pass (100%). Validated PDF OCR (PDF mime + .pdf filename go through pypdfium2 → Groq), Quotes CRUD with auto-numbering P-{year}-{0001}, quote→invoice convert (idempotency: 2nd convert returns 400, sets converted_invoice_id + status='aceptado'), Quote PDF, Rectificativas (series='R' independent counter, type='rectificativa', rectifies_id+rectifies_number set, quantities negated → negative subtotal/total), Payments lifecycle (partial 60→pendiente, +40→pagada, DELETE subtracts paid_amount and downgrades status), GET /clients/morosos, GET /fiscal/projection (today/year/quarter/current/current_quarter_taxes/yearly_projection shape complete), GET /accounting/books with year and year+quarter (libro_ingresos/libro_gastos/iva_rep_lines/iva_sop_lines/totals), AI chat persistence (same session_id appends, history returns ordered messages), and per-user scoping for quotes/invoices/payments/ai_messages. All Phase 1 endpoints regression-tested.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/invoices/{id}/rectify", "issue": "No idempotency check — rectifying the same invoice multiple times produces multiple R-* invoices. Consider blocking re-rectification or warning when rectifies_id already exists."},
+      {"endpoint": "POST /api/invoices/{id}/payments", "issue": "Allows overpayment — adding payment > remaining (e.g. 200 on a 100€ invoice) increments paid_amount past total. Consider validating amount <= total - paid_amount."},
+      {"endpoint": "DELETE /api/payments/{pid}", "issue": "Uses inv = await db.invoices.find_one({'id': pay['invoice_id']}, ...) without user_id filter — relies on prior find on payments scoping; functionally safe because payments collection is user-scoped, but defensively add user_id to invoice query too."},
+      {"endpoint": "POST /api/ai/ocr-receipt", "issue": "PDF→JPEG via pypdfium2 + Groq vision succeeded for synthetic reportlab PDF, but processing is synchronous and can take 8–20s. Consider streaming/timeout."},
+      {"endpoint": "GET /api/fiscal/projection yearly_projection.iva_estimated", "issue": "Computed as (iva_rep_q - iva_sop_q) * 4 — only extrapolates current quarter, not actual YTD. May mislead in Q4 or with uneven quarters. Consider YTD * (4/current_quarter)."},
+      {"endpoint": "POST /api/quotes (number)", "issue": "next_quote_number is read-then-write (same race condition as invoice numbering). Use atomic $inc."},
+      {"endpoint": "POST /api/ai/financial-summary", "issue": "Response shape changed since iteration 1 — now returns only {summary}, no {kpis}. Documented and stale assertion fixed in test_fakturaflow.py."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_fakturaflow.py",
+    "/app/backend/tests/test_fakturaflow_phase2.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/phase2_results.xml"
+  ],
+  "action_items": [
+    "Optional: Reject re-rectification of an invoice (or chain rectifies) to avoid R-* duplicates.",
+    "Optional: Validate payment.amount <= remaining_due to prevent overpayment.",
+    "Optional: Replace next_quote_number / next_invoice_number with atomic find_one_and_update($inc).",
+    "Optional: Refine yearly_projection.iva_estimated to use YTD scaling instead of currentQ * 4.",
+    "Optional: Add user_id filter on the invoices.find_one call inside DELETE /api/payments/{pid} for defense-in-depth."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1226 lines — strongly recommend splitting into routers (auth, clients, invoices, quotes, payments, ai, accounting, fiscal, reports) for maintainability.",
+    "recompute_invoice_status: when paid_amount drops below total it correctly downgrades 'pagada' → 'pendiente' (or 'vencida' if past due). Verified on partial-pay → delete-payment path.",
+    "rectify_invoice negates quantity but does not negate discount — if original had discount, the rectificativa will keep the positive discount sign on a negative line; behavior is fine since totals = qty*price*(1-disc%) but worth a comment.",
+    "convert_quote uses fixed series 'A' regardless of user's preferred series — consider allowing series override or honouring settings.invoice_series[0].",
+    "fiscal_projection.day_of_year ratio extrapolation can produce huge projected values early in the year (Jan: ratio=365). Consider a minimum ramp-up window.",
+    "AI chat history loaded with .to_list(20) — only the last 20 messages are passed; with 10 msgs/conversation that's only 10 turns of context. Document or paginate.",
+    "ai_messages collection has no index on (user_id, session_id, ts) — will degrade with growth; add index in startup."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fakturaflow_phase2.py (new)",
+    "/app/backend/tests/test_fakturaflow.py (fixed stale 'kpis' assertion in test_ai_financial_summary)"
+  ],
+  "success_rate": {"backend": "100% (47/47)", "frontend": "not tested (skipped per request)"},
+  "test_credentials": "Tests register fresh users p2_a_<uuid>@fakturaflow.es / TestPass123! and p2_b_<uuid>@fakturaflow.es / TestPass123!. Phase 1 file uses test_a_<uuid>/test_b_<uuid> with same password. admin@fakturaflow.es is documented but NOT seeded — register fresh users.",
+  "seed_data_creation": "Each run creates 2 throwaway users + 1 client + multiple invoices/quotes/payments; cleanup tests delete them at the end (best-effort).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/ -v. Phase 1 tests in test_fakturaflow.py, Phase 2 in test_fakturaflow_phase2.py. CRITICAL: server clock is past the project's 'today' simulation — invoices with due_date in 2026-Q1 will auto-flip to 'vencida' on GET. Use far-future due_dates (e.g., 2099-12-31) for payment-status testing. The OCR PDF test accepts both 200 and 500 since synthetic PDFs can fail Groq vision parsing — currently passes with 200. AI chat takes 2–6s per call.",
+  "rca of the issue": "N/A — initial test_payment_partial_then_full failure was due to test data using a due_date in the past; backend correctly flipped status to 'vencida'. Fixed by using due_date '2099-12-31'. Phase 1 test_ai_financial_summary was asserting a stale 'kpis' field — backend now returns only {summary}; assertion updated."
+}

@@ -1,0 +1,57 @@
+{
+  "name": "fakturaflow-desktop",
+  "version": "1.0.0",
+  "description": "FakturaFlow — Aplicación de escritorio para autónomos en España",
+  "main": "main.js",
+  "author": "FakturaFlow",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.5"
+  },
+  "build": {
+    "appId": "es.fakturaflow.desktop",
+    "productName": "FakturaFlow",
+    "copyright": "Copyright © 2026 FakturaFlow",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "build/**/*"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "FakturaFlow",
+      "installerLanguages": ["es_ES", "en_US"]
+    },
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.png",
+      "target": ["dmg"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Office",
+      "icon": "build/icon.png"
+    }
+  }
+}
