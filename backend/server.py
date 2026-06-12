@@ -1251,6 +1251,7 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
             return json.loads(resp.choices[0].message.content)
         except Exception as e:
             groq_error = e
+            logger.warning(f"Groq vision failed, fallback available={bool(GEMINI_API_KEY)}: {e}")
             if is_retryable_groq_image_error(e):
                 try:
                     smaller = image_to_jpeg_bytes(image_bytes, max_side=900, quality=68, max_bytes=1_500_000)
@@ -1258,9 +1259,11 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
                     return json.loads(resp.choices[0].message.content)
                 except Exception as retry_error:
                     groq_error = retry_error
+                    logger.warning(f"Groq vision retry failed, fallback available={bool(GEMINI_API_KEY)}: {retry_error}")
 
     if GEMINI_API_KEY:
         gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
+        logger.info(f"Using Gemini vision fallback with model={GEMINI_VISION_MODEL}")
         return gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
 
     raise groq_error
@@ -2067,6 +2070,16 @@ async def global_search(q: str, ctx=Depends(get_user_context)):
 @api.get("/")
 async def root():
     return {"message": "FakturaFlow API", "version": "3.1"}
+
+
+@api.get("/ai/config-status")
+async def ai_config_status():
+    return {
+        "groq_configured": bool(GROQ_API_KEY),
+        "gemini_configured": bool(GEMINI_API_KEY),
+        "gemini_model": GEMINI_VISION_MODEL,
+        "gemini_key_loaded": bool(GEMINI_API_KEY),
+    }
 
 
 # ==================== PHASE 3 ====================
