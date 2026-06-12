@@ -1240,6 +1240,31 @@ def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: i
     return json.loads(text)
 
 
+def gemini_text_ping() -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("Gemini API no configurada")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_VISION_MODEL}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": "Responde solo con OK"}]}],
+        "generationConfig": {"temperature": 0, "maxOutputTokens": 8},
+    }
+    resp = requests.post(
+        url,
+        headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+        json=payload,
+        timeout=20,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Gemini error {resp.status_code}: {resp.text[:500]}")
+    data = resp.json()
+    return (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [{}])[0]
+        .get("text", "")
+    ).strip()
+
+
 def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_tokens: int) -> dict:
     if not groq_client and not GEMINI_API_KEY:
         raise HTTPException(500, "IA no configurada")
@@ -2080,6 +2105,16 @@ async def ai_config_status():
         "gemini_model": GEMINI_VISION_MODEL,
         "gemini_key_loaded": bool(GEMINI_API_KEY),
     }
+
+
+@api.get("/ai/gemini-ping")
+async def ai_gemini_ping():
+    try:
+        text = gemini_text_ping()
+        return {"ok": True, "model": GEMINI_VISION_MODEL, "response": text}
+    except Exception as e:
+        logger.error(f"Gemini ping error: {e}")
+        return {"ok": False, "model": GEMINI_VISION_MODEL, "error": str(e)}
 
 
 # ==================== PHASE 3 ====================
