@@ -93,8 +93,8 @@ export default function Expenses() {
     const fd = new FormData();
     try {
       const { data: aiStatus } = await api.get("/ai/config-status", { headers: { "Cache-Control": "no-cache" } });
-      if (!aiStatus?.gemini_configured || aiStatus?.vision_primary !== "gemini") {
-        return toast.error(`Gemini no está activo en ${API_BASE}`);
+      if (!aiStatus?.gemini_configured) {
+        return toast.error(`Gemini no está configurado en ${API_BASE}`);
       }
       const uploadFile = await compressImage(file);
       fd.append("file", uploadFile, uploadFile.name || "ticket.jpg");
