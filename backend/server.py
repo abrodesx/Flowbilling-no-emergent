@@ -1365,7 +1365,12 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
 @api.post("/ai/ocr-receipt-gemini")
 async def ocr_receipt_gemini(file: UploadFile = File(...), ctx=Depends(get_user_context)):
     if not GEMINI_API_KEY:
-        raise HTTPException(500, "Gemini no esta configurado")
+        raise HTTPException(500, {
+            "message": "Gemini no esta configurado en este proceso del backend",
+            "gemini_configured": bool(GEMINI_API_KEY),
+            "vision_primary": AI_VISION_PRIMARY,
+            "diagnostic_version": "vision-gemini-primary-v4",
+        })
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(400, "Archivo demasiado grande (max 10MB)")

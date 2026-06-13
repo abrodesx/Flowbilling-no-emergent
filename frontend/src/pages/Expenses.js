@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, fmtEUR, fmtDate, formatApiError } from "@/lib/api";
+import { api, fmtEUR, fmtDate, formatApiError, API_BASE } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -92,6 +92,10 @@ export default function Expenses() {
     setOcrLoading(true);
     const fd = new FormData();
     try {
+      const { data: aiStatus } = await api.get("/ai/config-status", { headers: { "Cache-Control": "no-cache" } });
+      if (!aiStatus?.gemini_configured || aiStatus?.vision_primary !== "gemini") {
+        return toast.error(`Gemini no está activo en ${API_BASE}`);
+      }
       const uploadFile = await compressImage(file);
       fd.append("file", uploadFile, uploadFile.name || "ticket.jpg");
       const { data } = await api.post("/ai/ocr-receipt-gemini", fd);
