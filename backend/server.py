@@ -1208,8 +1208,8 @@ def groq_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int
     )
 
 
-def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int) -> dict:
-    api_key = get_gemini_api_key()
+def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int, api_key: Optional[str] = None) -> dict:
+    api_key = (api_key or get_gemini_api_key()).strip()
     if not api_key:
         raise RuntimeError("Gemini API no configurada")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_VISION_MODEL}:generateContent"
@@ -1371,6 +1371,7 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
 
 @api.post("/ai/ocr-receipt-gemini")
 async def ocr_receipt_gemini(file: UploadFile = File(...), ctx=Depends(get_user_context)):
+    gemini_api_key = get_gemini_api_key()
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:
         raise HTTPException(400, "Archivo demasiado grande (max 10MB)")
@@ -1398,12 +1399,16 @@ async def ocr_receipt_gemini(file: UploadFile = File(...), ctx=Depends(get_user_
         "description (resumen breve). Si no detectas algo, usa null."
     )
     try:
-        data = gemini_vision_json(prompt, raw, mime, 512)
+        data = gemini_vision_json(prompt, raw, mime, 512, api_key=gemini_api_key)
         data["_ai_provider"] = "gemini-direct"
         return data
     except Exception as e:
         logger.error(f"Gemini direct OCR error: {e}")
-        raise HTTPException(502, f"Gemini ha fallado procesando la imagen: {e}")
+        raise HTTPException(502, {
+            "message": f"Gemini ha fallado procesando la imagen: {e}",
+            "gemini_key_present_at_request_start": bool(gemini_api_key),
+            "diagnostic_version": "vision-gemini-explicit-key-v7",
+        })
 
 
 @api.post("/ai/import-invoice")
@@ -2181,7 +2186,7 @@ async def ai_config_status():
         "gemini_model": GEMINI_VISION_MODEL,
         "gemini_key_loaded": bool(gemini_api_key),
         "vision_primary": AI_VISION_PRIMARY,
-        "diagnostic_version": "vision-gemini-direct-no-precheck-v6",
+        "diagnostic_version": "vision-gemini-explicit-key-v7",
     }
 
 
@@ -2192,7 +2197,7 @@ async def ocr_receipt_gemini_status():
         "ok": bool(gemini_api_key),
         "gemini_configured_for_direct_ocr": bool(gemini_api_key),
         "gemini_model": GEMINI_VISION_MODEL,
-        "diagnostic_version": "vision-gemini-direct-no-precheck-v6",
+        "diagnostic_version": "vision-gemini-explicit-key-v7",
     }
 
 
