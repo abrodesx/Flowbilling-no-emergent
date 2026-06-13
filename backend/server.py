@@ -1192,6 +1192,10 @@ def is_retryable_groq_image_error(exc: Exception) -> bool:
     return "403" in text or "access denied" in text or "413" in text or "request too large" in text
 
 
+def get_gemini_api_key() -> str:
+    return (os.environ.get("GEMINI_API_KEY") or GEMINI_API_KEY or "").strip()
+
+
 def groq_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int):
     b64 = base64.b64encode(image_bytes).decode()
     return groq_client.chat.completions.create(
@@ -1205,7 +1209,8 @@ def groq_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int
 
 
 def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: int) -> dict:
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         raise RuntimeError("Gemini API no configurada")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_VISION_MODEL}:generateContent"
     payload = {
@@ -1223,7 +1228,7 @@ def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: i
     }
     resp = requests.post(
         url,
-        headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         json=payload,
         timeout=45,
     )
@@ -1242,7 +1247,8 @@ def gemini_vision_json(prompt: str, image_bytes: bytes, mime: str, max_tokens: i
 
 
 def gemini_text_ping() -> str:
-    if not GEMINI_API_KEY:
+    api_key = get_gemini_api_key()
+    if not api_key:
         raise RuntimeError("Gemini API no configurada")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_VISION_MODEL}:generateContent"
     payload = {
@@ -1251,7 +1257,7 @@ def gemini_text_ping() -> str:
     }
     resp = requests.post(
         url,
-        headers={"x-goog-api-key": GEMINI_API_KEY, "Content-Type": "application/json"},
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         json=payload,
         timeout=20,
     )
@@ -1280,10 +1286,11 @@ def gemini_vision_ping() -> dict:
 
 
 def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_tokens: int) -> dict:
-    if not groq_client and not GEMINI_API_KEY:
+    gemini_api_key = get_gemini_api_key()
+    if not groq_client and not gemini_api_key:
         raise HTTPException(500, "IA no configurada")
 
-    if AI_VISION_PRIMARY == "gemini" and GEMINI_API_KEY:
+    if AI_VISION_PRIMARY == "gemini" and gemini_api_key:
         try:
             gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
             logger.info(f"Using Gemini vision primary with model={GEMINI_VISION_MODEL}")
@@ -1303,7 +1310,7 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
             return data
         except Exception as e:
             groq_error = e
-            logger.warning(f"Groq vision failed, fallback available={bool(GEMINI_API_KEY)}: {e}")
+            logger.warning(f"Groq vision failed, fallback available={bool(gemini_api_key)}: {e}")
             if is_retryable_groq_image_error(e):
                 try:
                     smaller = image_to_jpeg_bytes(image_bytes, max_side=900, quality=68, max_bytes=1_500_000)
@@ -1313,9 +1320,9 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
                     return data
                 except Exception as retry_error:
                     groq_error = retry_error
-                    logger.warning(f"Groq vision retry failed, fallback available={bool(GEMINI_API_KEY)}: {retry_error}")
+                    logger.warning(f"Groq vision retry failed, fallback available={bool(gemini_api_key)}: {retry_error}")
 
-    if GEMINI_API_KEY:
+    if gemini_api_key:
         gemini_bytes = image_to_jpeg_bytes(image_bytes, max_side=1200, quality=76, max_bytes=3_500_000)
         logger.info(f"Using Gemini vision fallback with model={GEMINI_VISION_MODEL}")
         data = gemini_vision_json(prompt, gemini_bytes, "image/jpeg", max_tokens)
@@ -1327,7 +1334,7 @@ def vision_json_with_fallback(prompt: str, image_bytes: bytes, mime: str, max_to
 
 @api.post("/ai/ocr-receipt")
 async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context)):
-    if not groq_client and not GEMINI_API_KEY:
+    if not groq_client and not get_gemini_api_key():
         raise HTTPException(500, "IA no configurada")
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:
@@ -1364,10 +1371,10 @@ async def ocr_receipt(file: UploadFile = File(...), ctx=Depends(get_user_context
 
 @api.post("/ai/ocr-receipt-gemini")
 async def ocr_receipt_gemini(file: UploadFile = File(...), ctx=Depends(get_user_context)):
-    if not GEMINI_API_KEY:
+    if not get_gemini_api_key():
         raise HTTPException(500, {
             "message": "Gemini no esta configurado en este proceso del backend",
-            "gemini_configured": bool(GEMINI_API_KEY),
+            "gemini_configured": bool(get_gemini_api_key()),
             "vision_primary": AI_VISION_PRIMARY,
             "diagnostic_version": "vision-gemini-primary-v4",
         })
@@ -1416,7 +1423,7 @@ async def ai_import_invoice(
     """Read a PDF/image of an invoice or quote, extract structured data with Groq.
     If save=True, create the document in DB. Otherwise return the extracted preview
     so the user can review and confirm before saving."""
-    if not groq_client and not GEMINI_API_KEY:
+    if not groq_client and not get_gemini_api_key():
         raise HTTPException(500, "IA no configurada")
     if target not in ("invoice", "quote"):
         raise HTTPException(400, "target debe ser 'invoice' o 'quote'")
@@ -2174,11 +2181,12 @@ async def root():
 
 @api.get("/ai/config-status")
 async def ai_config_status():
+    gemini_api_key = get_gemini_api_key()
     return {
         "groq_configured": bool(GROQ_API_KEY),
-        "gemini_configured": bool(GEMINI_API_KEY),
+        "gemini_configured": bool(gemini_api_key),
         "gemini_model": GEMINI_VISION_MODEL,
-        "gemini_key_loaded": bool(GEMINI_API_KEY),
+        "gemini_key_loaded": bool(gemini_api_key),
         "vision_primary": AI_VISION_PRIMARY,
         "diagnostic_version": "vision-gemini-primary-v4",
     }
@@ -2335,7 +2343,7 @@ async def advisor_review(year: Optional[int] = None, quarter: Optional[int] = No
 # ---------- ENHANCED OCR with duplicate detection ----------
 @api.post("/ai/ocr-receipt-advanced")
 async def ocr_advanced(file: UploadFile = File(...), ctx=Depends(get_user_context)):
-    if not groq_client and not GEMINI_API_KEY:
+    if not groq_client and not get_gemini_api_key():
         raise HTTPException(500, "IA no configurada")
     raw = await file.read()
     if len(raw) > 10 * 1024 * 1024:
