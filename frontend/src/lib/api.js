@@ -34,7 +34,8 @@ export function formatApiError(err) {
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) return detail.map((e) => (e?.msg ? e.msg : JSON.stringify(e))).join(" ");
   if (detail?.msg) return detail.msg;
-  return String(detail);
+  if (detail?.message) return detail.message;
+  return JSON.stringify(detail);
 }
 
 export const fmtEUR = (n) =>
